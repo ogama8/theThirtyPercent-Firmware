@@ -27,10 +27,10 @@
 #include <util/delay.h>
 #include "usb_keyboard.h"
 
-#define LED_CONFIG		(DDRD |= (1<<8))
-#define LED_ON				(PORTD &= ~(1<<8))
-#define LED_OFF			(PORTD |= (1<<8))
-#define CPU_PRESCALE(n)	(CLKPR = 0x80, CLKPR = (n))
+#define LED_CONFIG		(DDRC  |=  0x80)
+#define LED_ON				(PORTC &= ~0x80)
+#define LED_OFF			(PORTC |=  0x80)
+#define CPU_PRESCALE(n)	(CLKPR  = 0x80, CLKPR = (n))
 
 uint8_t number_keys[10] =
 	{KEY_0,KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,KEY_6,KEY_7,KEY_8,KEY_9};
@@ -70,7 +70,9 @@ int main(void) {
 	CPU_PRESCALE(0);
 
 	// Set all input and output ports correctly
-	DDRD  = 0xC7;					// Rows 0 thru 2 & the LEDs
+	LED_CONFIG;
+	LED_OFF;
+	DDRD  = 0x47;					// Rows 0 thru 2 & the LEDs
 	PORTD = 0x00;
 	DDRB  = 0x00;  				// Cols 0 thru 4
 	PORTB = 0x00;
@@ -81,7 +83,8 @@ int main(void) {
 	// If the Teensy is powered without a PC connected to the USB port,
 	// this will wait forever.
 	usb_init();
-	while (!usb_configured()) /* wait */ ;
+	while (!usb_configured())
+		;
 
 	// Wait an extra second for the PC's operating system to load drivers
 	// and do whatever it does to actually be ready for input
@@ -96,10 +99,16 @@ int main(void) {
 	// TIMSK0 = (1<<TOIE0);
 
 	PORTD = 0x40;  				//  Teensy LED On
+	LED_CONFIG;
 
 	while (1) {
 		// check if any pins are high, but were low previously
 		// reset_idle = 0;
+
+		if (function)
+			LED_ON;
+		else
+			LED_OFF;
 
 		for (rowCount = 0; rowCount < 3; ++rowCount) {
 			PORTD |= 1 << rowCount;
@@ -108,21 +117,20 @@ int main(void) {
 			f = PINF;
 
 			for (colCount = 0; colCount < 5; ++colCount) {
-				if(keymap[0][rowCount][colCount + 5] == KEY_SHIFT) {
+			// Handle the Shift and Function Keys
+				if(keymap[0][rowCount][colCount + 5] == KEY_SHIFT)
 					shift = f & f_mask[colCount] ? 1 : 0;
-				}
-
-				if(keymap[0][rowCount][colCount + 5] == KEY_FUNCTION) {
+				if(keymap[0][rowCount][colCount + 5] == KEY_FUNCTION)
 					function = f & f_mask[colCount] ? 1 : 0;
-				}
 
-
+			// Handle the left side
 				if ((b & b_mask[colCount]) &&
 				     !(b_prev[rowCount] & b_mask[colCount])) {
 					usb_keyboard_press(keymap[function][rowCount][colCount],
 					                   shift ? KEY_SHIFT : 0);
 					reset_idle = 1;
 				}
+			// Handle the right side
 				if ((f & f_mask[colCount]) &&
 				     !(f_prev[rowCount] & f_mask[colCount])) {
 					usb_keyboard_press(keymap[function][rowCount][colCount + 5],
