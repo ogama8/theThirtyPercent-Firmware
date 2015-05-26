@@ -35,10 +35,14 @@
 uint8_t number_keys[10] =
 	{KEY_0,KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,KEY_6,KEY_7,KEY_8,KEY_9};
 
-uint8_t layer0_keys[3][10] =
-	{{KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I,     KEY_O,      KEY_P},
-    {KEY_A, KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_I,     KEY_L,      0},  		     // Need to figure out Function Layer thing.
-	 {KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA, KEY_PERIOD, KEY_SHIFT}};
+uint8_t keymap[2][3][10] =
+	{{{KEY_Q, KEY_W, KEY_E,      KEY_R,         KEY_T, KEY_Y, KEY_U,     KEY_I,     KEY_O,      KEY_P},
+     {KEY_A, KEY_S, KEY_D,      KEY_F,         KEY_G, KEY_H, KEY_J,     KEY_K,     KEY_L,      KEY_FUNCTION},
+	  {KEY_Z, KEY_X, KEY_C,      KEY_V,         KEY_B, KEY_N, KEY_M,     KEY_COMMA, KEY_PERIOD, KEY_SHIFT}},
+
+	 {{KEY_1, KEY_2, KEY_3,      KEY_4,         KEY_5,      KEY_6,     KEY_7,     KEY_8, KEY_9, KEY_0},
+     {0,     0,     0,          KEY_BACKSPACE, KEY_DELETE, KEY_ENTER, KEY_SPACE, 0,     0,     KEY_FUNCTION},
+     {0,     0,     0,          0,             0,          0,         0,         0,     0,     KEY_SHIFT}}};
 
 uint8_t b_mask[5] = {0x01,       // B0
                      0x02,       // B1
@@ -54,24 +58,24 @@ uint8_t f_mask[5] = {0x01,			// F0
 
 uint16_t idle_count = 0;
 
-int main(void)
-{
-	uint8_t b,
-	        f,
-			  rowCount,
-		     colCount,
+int main(void) {
+	uint8_t b, f,
+			  rowCount, colCount,
+			  shift, function,
 			  reset_idle;
-	uint8_t b_prev = 0xFF,
-	        f_prev = 0xFF;
+	uint8_t b_prev[3] = {0xFF, 0xFF, 0xFF};
+	uint8_t f_prev[3] = {0xFF, 0xFF, 0xFF};
 
 	// set for 16 MHz clock
 	CPU_PRESCALE(0);
 
 	// Set all input and output ports correctly
-	DDRD  = 0x07;					// Rows 0 thru 2
+	DDRD  = 0xC7;					// Rows 0 thru 2 & the LEDs
 	PORTD = 0x00;
 	DDRB  = 0x00;  				// Cols 0 thru 4
+	PORTB = 0x00;
 	DDRF  = 0x00;              // Cols 5 thru 9
+	PORTF = 0x00;
 
 	// Initialize the USB, and then wait for the host to set configuration.
 	// If the Teensy is powered without a PC connected to the USB port,
@@ -87,64 +91,77 @@ int main(void)
 	// 256*1024 clock cycles, or approx 61 Hz when using 16 MHz clock
 	// This demonstrates how to use interrupts to implement a simple
 	// inactivity timeout.
-	TCCR0A = 0x00;
-	TCCR0B = 0x05;
-	TIMSK0 = (1<<TOIE0);
+	// TCCR0A = 0x00;
+	// TCCR0B = 0x05;
+	// TIMSK0 = (1<<TOIE0);
+
+	PORTD = 0x40;  				//  Teensy LED On
 
 	while (1) {
+		// check if any pins are high, but were low previously
+		// reset_idle = 0;
 
-		// now we need a for loop, then we look at all three rows
-		b = 0x00;
-		f = 0x00;
+		for (rowCount = 0; rowCount < 3; ++rowCount) {
+			PORTD |= 1 << rowCount;
+			_delay_ms(1);
+			b = PINB;
+			f = PINF;
 
-		// read all port B and port F pins
-		PORTD = 0x01;
-		b |= PINB;
-		f |= PINF;
+			for (colCount = 0; colCount < 5; ++colCount) {
+				if(keymap[0][rowCount][colCount + 5] == KEY_SHIFT) {
+					shift = f & f_mask[colCount] ? 1 : 0;
+				}
 
-		// check if any pins are low, but were high previously
-		reset_idle = 0;
+				if(keymap[0][rowCount][colCount + 5] == KEY_FUNCTION) {
+					function = f & f_mask[colCount] ? 1 : 0;
+				}
 
-		for (colCount = 0; colCount < 5; colCount++) {
-			if ((b & b_mask[colCount]) == 0  &&
-			     b_prev & b_mask[colCount] != 0) {
-				usb_keyboard_press(KEY_B, KEY_SHIFT);
-				usb_keyboard_press(layer0_keys[0][colCount], 0);
-				reset_idle = 1;
+
+				if ((b & b_mask[colCount]) &&
+				     !(b_prev[rowCount] & b_mask[colCount])) {
+					usb_keyboard_press(keymap[function][rowCount][colCount],
+					                   shift ? KEY_SHIFT : 0);
+					reset_idle = 1;
+				}
+				if ((f & f_mask[colCount]) &&
+				     !(f_prev[rowCount] & f_mask[colCount])) {
+					usb_keyboard_press(keymap[function][rowCount][colCount + 5],
+					                   shift ? KEY_SHIFT : 0);
+					reset_idle = 1;
+				}
 			}
-			if ((f & f_mask[colCount]) == 0 &&
-			     (f_prev & f_mask[colCount]) != 0) {
-				usb_keyboard_press(KEY_F, KEY_SHIFT);
-				usb_keyboard_press(layer0_keys[0][colCount], 0);
-				reset_idle = 1;
-			}
+
+			// if any keypresses were detected, reset the idle counter
+			// if (reset_idle) {
+				// variables shared with interrupt routines must be
+				// accessed carefully so the interrupt routine doesn't
+				// try to use the variable in the middle of our access
+				// cli();
+				// idle_count = 0;
+				// sei();
+			// }
+
+			// now the current pins will be the previous, and
+			// wait a short delay so we're not highly sensitive
+			// to mechanical "bounce".
+
+			b_prev[rowCount] = b;
+			f_prev[rowCount] = f;
+
+			_delay_ms(1);
+			PORTD &= ~(1 << rowCount);
 		}
-		// if any keypresses were detected, reset the idle counter
-		if (reset_idle) {
-			// variables shared with interrupt routines must be
-			// accessed carefully so the interrupt routine doesn't
-			// try to use the variable in the middle of our access
-			cli();
-			idle_count = 0;
-			sei();
-		}
-		// now the current pins will be the previous, and
-		// wait a short delay so we're not highly sensitive
-		// to mechanical "bounce".
-		b_prev = b;
-		f_prev = f;
-		_delay_ms(2);
 	}
 }
 
 // This interrupt routine is run approx 61 times per second.
 // A very simple inactivity timeout is implemented, where we
 // will send a space character.
-ISR(TIMER0_OVF_vect)
-{
-	idle_count++;
-	if (idle_count > 61 * 8) {
-		idle_count = 0;
-		usb_keyboard_press(KEY_SPACE, 0);
-	}
-}
+// ISR(TIMER0_OVF_vect)
+// {
+// 	idle_count++;
+// 	if (idle_count > 61 * 8) {
+// 		idle_count = 0;
+// 		usb_keyboard_press(KEY_SPACE, 0);
+// 	}
+// }
