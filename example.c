@@ -31,18 +31,25 @@
 #define LED_ON				(PORTC &= ~0x80)
 #define LED_OFF			(PORTC |=  0x80)
 #define CPU_PRESCALE(n)	(CLKPR  = 0x80, CLKPR = (n))
-
-uint8_t number_keys[10] =
-	{KEY_0,KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,KEY_6,KEY_7,KEY_8,KEY_9};
+#define BMASK				0b00011111
+#define FMASK				0b01110011
+#define REPEAT_RATE     2
 
 uint8_t keymap[2][3][10] =
 	{{{KEY_Q, KEY_W, KEY_E,      KEY_R,         KEY_T, KEY_Y, KEY_U,     KEY_I,     KEY_O,      KEY_P},
      {KEY_A, KEY_S, KEY_D,      KEY_F,         KEY_G, KEY_H, KEY_J,     KEY_K,     KEY_L,      KEY_FUNCTION},
 	  {KEY_Z, KEY_X, KEY_C,      KEY_V,         KEY_B, KEY_N, KEY_M,     KEY_COMMA, KEY_PERIOD, KEY_SHIFT}},
 
-	 {{KEY_1, KEY_2, KEY_3,      KEY_4,         KEY_5,      KEY_6,     KEY_7,     KEY_8, KEY_9, KEY_0},
-     {0,     0,     0,          KEY_BACKSPACE, KEY_DELETE, KEY_ENTER, KEY_SPACE, 0,     0,     KEY_FUNCTION},
-     {0,     0,     0,          0,             0,          0,         0,         0,     0,     KEY_SHIFT}}};
+	 {{KEY_1,    KEY_2,     KEY_3,     KEY_4,         KEY_5,          KEY_6,           KEY_7,         KEY_8,  KEY_9,     KEY_0},
+     {KEY_ESC,  KEY_MINUS, KEY_EQUAL, KEY_SEMICOLON, KEY_QUOTE,      KEY_LEFT,        KEY_DOWN,      KEY_UP, KEY_RIGHT, KEY_FUNCTION},
+     {KEY_CTRL, KEY_ALT,   KEY_GUI,   KEY_TILDE,     KEY_LEFT_BRACE, KEY_RIGHT_BRACE, KEY_BACKSLASH, 0,      KEY_SLASH, KEY_SHIFT}}};
+
+uint8_t b_combo_mask[3] = {0x07,      0x0E,          0x0E};
+uint8_t b_combo[3]      = {KEY_TAB,   KEY_BACKSPACE, KEY_DELETE};
+
+uint8_t f_combo_mask[3] = {0x32,      0x32,          0xFF};
+uint8_t f_combo[3]      = {KEY_ENTER, KEY_SPACE,     0};
+
 
 uint8_t b_mask[5] = {0x01,       // B0
                      0x02,       // B1
@@ -61,8 +68,10 @@ uint16_t idle_count = 0;
 int main(void) {
 	uint8_t b, f,
 			  rowCount, colCount,
-			  shift, function,
-			  reset_idle;
+			  function = 0, mod = 0,
+           run,
+			  prevKey = 0, curKey = 0,
+           hold_count = 0;
 	uint8_t b_prev[3] = {0xFF, 0xFF, 0xFF};
 	uint8_t f_prev[3] = {0xFF, 0xFF, 0xFF};
 
@@ -72,7 +81,7 @@ int main(void) {
 	// Set all input and output ports correctly
 	LED_CONFIG;
 	LED_OFF;
-	DDRD  = 0x47;					// Rows 0 thru 2 & the LEDs
+	DDRD  = 0x47;					// Rows 0 thru 2 & the Teensy's LED
 	PORTD = 0x00;
 	DDRB  = 0x00;  				// Cols 0 thru 4
 	PORTB = 0x00;
@@ -102,41 +111,70 @@ int main(void) {
 	LED_CONFIG;
 
 	while (1) {
-		// check if any pins are high, but were low previously
-		// reset_idle = 0;
-
-		if (function)
+		if (mod & ~KEY_SHIFT)
 			LED_ON;
 		else
 			LED_OFF;
 
-		for (rowCount = 0; rowCount < 3; ++rowCount) {
+		for (rowCount = 0, run = 1, curKey = 0; rowCount < 3 && run; ++rowCount) {
 			PORTD |= 1 << rowCount;
-			_delay_ms(1);
+			_delay_ms(5);
 			b = PINB;
 			f = PINF;
 
-			for (colCount = 0; colCount < 5; ++colCount) {
-			// Handle the Shift and Function Keys
-				if(keymap[0][rowCount][colCount + 5] == KEY_SHIFT)
-					shift = f & f_mask[colCount] ? 1 : 0;
-				if(keymap[0][rowCount][colCount + 5] == KEY_FUNCTION)
-					function = f & f_mask[colCount] ? 1 : 0;
+			// Handle combo key entry
+			if ((b & b_combo_mask[rowCount]) == b_combo_mask[rowCount] &&
+			 (b & BMASK) != (b_prev[rowCount] & BMASK)) {
+				curKey = b_combo[rowCount];
+				run = 0;
+			}
+			if ((f & f_combo_mask[rowCount])== f_combo_mask[rowCount] &&
+			 (f & FMASK) != (f_prev[rowCount] & FMASK)) {
+				curKey = f_combo[rowCount];
+				run = 0;
+			}
 
-			// Handle the left side
+			for (colCount = 0; colCount < 5 && run; ++colCount) {
+				// Handle the Mod and Function Keys
+				if(keymap[0][rowCount][colCount + 5] == KEY_FUNCTION) {
+					function = f & f_mask[colCount] ? 1 : 0;
+				}
+
+				if(keymap[0][rowCount][colCount + 5] == KEY_SHIFT) {			// This should be a switch statement
+					if (f & f_mask[colCount])
+						mod |= KEY_SHIFT;
+					else
+						mod &= ~(KEY_SHIFT);
+				}
+				if(keymap[function][rowCount][colCount] == KEY_CTRL) {
+					if (b & b_mask[colCount])
+						mod |= KEY_CTRL;
+					// else
+					// 	mod &= ~(KEY_CTRL);
+				}
+				if(keymap[function][rowCount][colCount] == KEY_ALT) {
+					if (b & b_mask[colCount])
+						mod |= KEY_ALT;
+					// else
+					// 	mod &= ~(KEY_ALT);
+				}
+				if(keymap[function][rowCount][colCount] == KEY_GUI) {
+					if (b & b_mask[colCount])
+						mod |= KEY_GUI;
+					// else
+					// 	mod &= ~(KEY_GUI);
+				}
+
+				// Handle traditional key entry
 				if ((b & b_mask[colCount]) &&
-				     !(b_prev[rowCount] & b_mask[colCount])) {
-					usb_keyboard_press(keymap[function][rowCount][colCount],
-					                   shift ? KEY_SHIFT : 0);
-					reset_idle = 1;
+			    !(b_prev[rowCount] & b_mask[colCount])) {
+					curKey = keymap[function][rowCount][colCount];
 				}
-			// Handle the right side
 				if ((f & f_mask[colCount]) &&
-				     !(f_prev[rowCount] & f_mask[colCount])) {
-					usb_keyboard_press(keymap[function][rowCount][colCount + 5],
-					                   shift ? KEY_SHIFT : 0);
-					reset_idle = 1;
+			    !(f_prev[rowCount] & f_mask[colCount])) {
+					curKey = keymap[function][rowCount][colCount + 5];
 				}
+
 			}
 
 			// if any keypresses were detected, reset the idle counter
@@ -153,12 +191,29 @@ int main(void) {
 			// wait a short delay so we're not highly sensitive
 			// to mechanical "bounce".
 
+			_delay_ms(10);
+			PORTD &= ~(1 << rowCount);
+
+			// if (keyCount > 2)
+			// 	curKey = KEY_SPACE;
+			// else {
 			b_prev[rowCount] = b;
 			f_prev[rowCount] = f;
-
-			_delay_ms(1);
-			PORTD &= ~(1 << rowCount);
+			// }
 		}
+		if (curKey && prevKey != curKey) {
+			usb_keyboard_press(curKey, mod & KEY_META_MASK);
+			mod = 0;
+			hold_count = 0;
+		} else if (++hold_count == REPEAT_RATE) {
+		   for (rowCount = 0; rowCount < 3; ++rowCount) {
+				b_prev[rowCount] = 0x00;
+				f_prev[rowCount] = 0x00;
+			}
+			hold_count = 0;
+      }
+
+		prevKey = curKey;
 	}
 }
 

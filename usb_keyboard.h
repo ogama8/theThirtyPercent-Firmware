@@ -18,19 +18,20 @@ extern volatile uint8_t keyboard_leds;
 #define usb_debug_putchar(c)
 #define usb_debug_flush_output()
 
-
-#define KEY_CTRL	0x01
-#define KEY_SHIFT	0x02
-#define KEY_ALT		0x04
-#define KEY_GUI		0x08
-#define KEY_LEFT_CTRL	0x01
-#define KEY_LEFT_SHIFT	0x02
-#define KEY_LEFT_ALT	0x04
-#define KEY_LEFT_GUI	0x08
-#define KEY_RIGHT_CTRL	0x10
-#define KEY_RIGHT_SHIFT	0x20
-#define KEY_RIGHT_ALT	0x40
-#define KEY_RIGHT_GUI	0x80
+#define KEY_META_MASK   0x0F
+#define KEY_CTRL	      0xF1
+#define KEY_SHIFT     	0xF2
+#define KEY_ALT		   0xF4
+#define KEY_GUI		   0xF8
+#define KEY_LEFT_CTRL	0xF1
+#define KEY_LEFT_SHIFT	0xF2
+#define KEY_LEFT_ALT	   0xF4
+#define KEY_LEFT_GUI	   0xF8
+// Because I'm not sanitary with my key inputs, these are not usable.
+// #define KEY_RIGHT_CTRL	0x10
+// #define KEY_RIGHT_SHIFT	0x20
+// #define KEY_RIGHT_ALT	0x40
+// #define KEY_RIGHT_GUI	0x80
 
 #define KEY_A		4
 #define KEY_B		5
